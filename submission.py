@@ -11,23 +11,25 @@ then aggregate those scores per *parsed final answer*:
    blocks:
      * 1024-d whole-trace embedding, centred within the question and
        L2-normalised (question-specific variation cancels out);
-     * 13 cheap surface/reasoning features (length, boxed/#### formatting,
-       equation density, self-correction markers, ...);
+     * 12 cheap surface features (length, boxed/#### formatting, equation
+       density, fraction/approximation style, ...);
      * 6 cross-candidate features (how many candidates share this answer,
        embedding similarity to the group centroid, to agreeing candidates
        and to disagreeing ones, embedding norm).
-3. Candidates that end in the same parsed answer form one group; the group
-   score is the mean candidate score plus ``beta * log(group size)``. The best
-   group wins and its highest-scoring candidate is returned. Grouping matters
+3. Candidates that end in the same parsed answer form one group. A second,
+   pairwise-trained comparator ranks whole groups using the candidate scores,
+   the group's support and cohesion, and its text statistics; the best group
+   wins and its highest-scoring candidate is returned. Grouping matters
    because the scorer grades final answers: two traces that agree deserve
-   shared support.
+   shared support, and the smaller comparison stage is what decides between
+   two plausible groups.
 
 Training is done by ``train.py`` on the supplied training split only (public
-training references); validation is used to pick the two hyper-parameters
-(``C`` and ``beta``), and the test split is never touched during development.
-The fitted checkpoint is ~12 KiB, far below the 16 MiB asset limit, and full
-prediction for 467 questions takes well under a second on CPU, far below the
-30 s limit.
+training references); validation is used to choose hyper-parameters and the
+test split is never touched during development.
+The fitted checkpoint (verifier plus comparator) is about 25 KiB, far below the
+16 MiB asset limit, and full prediction for 467 questions takes well under a
+second on CPU, far below the 30 s limit.
 
 If no checkpoint is supplied (``--checkpoint`` omitted) the method degrades to
 pure answer-agreement voting, which is a legitimate training-free baseline.
@@ -43,15 +45,6 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Feature extraction.
 # ---------------------------------------------------------------------------
-# Words that a wrong trace tends to use when it has to back-track.
-# Removed. No answers in the dataset seem to have any of this after all.
-
-# _HEDGES = (
-#     'wait', 'hmm', 'let me', 'try again', 'mistake', 'actually', 'however',
-#     'not an integer', "doesn't make sense", 'misinterpret', 'error',
-#     'incorrect', 'rethink', 'alternatively', 'seems wrong', "let's try",
-#     'but this', 'problem setup', 'contradiction', 'wrong',
-# )
 DIGIT = re.compile(r'\d+')
 
 
@@ -113,7 +106,7 @@ def group_features(embeddings, answers):
 
 
 def feature_matrix(bank, embeddings):
-    """Build the [N, 4, 1043] design tensor from a bank and its embeddings."""
+    """Build the [N, 4, 1042] design tensor from a bank and its embeddings."""
     n = len(bank)
     embeddings = np.asarray(embeddings, dtype=np.float64)
     if embeddings.shape[:2] != (n, 4):
@@ -192,6 +185,88 @@ def choose_by_model(bank, answers, scores, beta):
 
 
 # ---------------------------------------------------------------------------
+# Stage 2: group comparator.
+#
+# Stage 1 scores candidates independently. The decision, however, is between
+# answer groups, so a second linear model ranks whole groups using the stage-1
+# scores, the group's support, its embedding cohesion and its text statistics.
+# It is trained on pairwise differences (correct group minus wrong group), so a
+# single weight vector scores any group and the best group wins.
+# ---------------------------------------------------------------------------
+GROUP_FEATURE_WIDTH = 11
+
+
+def group_rows(bank, answers, scores, embeddings, q):
+    """Features for every answer group of question ``q``, or None.
+
+    Returns (matrix [n_groups, 11], list of member index lists). All features
+    vary across the groups of a question; constants would cancel out in the
+    pairwise training objective.
+    """
+    groups = {}
+    for i in range(4):
+        if answers[q][i] is not None:
+            groups.setdefault(answers[q][i], []).append(i)
+    if not groups:
+        return None
+
+    emb = np.asarray(embeddings[q], dtype=np.float64)
+    unit = emb / (np.linalg.norm(emb, axis=1, keepdims=True) + 1e-8)
+    centroid = unit.mean(axis=0)
+    rows, members = [], []
+    for answer, idx in groups.items():
+        texts = [bank[q]['candidates'][i]['text'] for i in idx]
+        group_scores = scores[q, idx]
+        if len(idx) > 1:
+            cohesion = float(np.mean([unit[i] @ unit[j]
+                                      for x, i in enumerate(idx) for j in idx[x + 1:]]))
+        else:
+            cohesion = 0.0
+        rows.append([
+            len(idx) / 4.0,
+            float(group_scores.mean()),
+            float(group_scores.max()),
+            float(group_scores.min()),
+            float(np.mean([unit[i] @ centroid for i in idx])),
+            cohesion,
+            float(np.mean([np.log1p(len(t)) for t in texts])),
+            float(np.mean([np.log1p(t.count('=')) for t in texts])),
+            float(np.mean([float('\\boxed' in t) for t in texts])),
+            float(np.mean([float('\\frac' in t) for t in texts])),
+            float(np.mean([np.linalg.norm(emb[i]) for i in idx])),
+        ])
+        members.append(idx)
+    return np.asarray(rows, dtype=np.float64), members
+
+
+def comparator_params(params):
+    """Return (mean, scale, coef) when the checkpoint carries a comparator."""
+    if params is None or 'cmp_coef' not in params:
+        return None
+    mean = np.asarray(params['cmp_mean']).ravel()
+    scale = np.asarray(params['cmp_scale']).ravel()
+    coef = np.asarray(params['cmp_coef']).ravel()
+    if coef.size != GROUP_FEATURE_WIDTH or mean.size != GROUP_FEATURE_WIDTH:
+        return None
+    return mean, scale, coef
+
+
+def choose_by_comparator(bank, answers, scores, embeddings, mean, scale, coef):
+    """Rank answer groups with the comparator, then take the best candidate."""
+    choices = []
+    for q in range(len(bank)):
+        built = group_rows(bank, answers, scores, embeddings, q)
+        if built is None:
+            choices.append(int(np.argmax(scores[q])))
+            continue
+        rows, members = built
+        strength = ((rows - mean) / scale) @ coef
+        idx = members[int(np.argmax(strength))]
+        choices.append(int(idx[int(np.argmax(scores[q, idx]))]))
+    return choices
+
+
+# ---------------------------------------------------------------------------
 # Public interface.
 # ---------------------------------------------------------------------------
 def predict(bank, arrays, checkpoint):
@@ -223,4 +298,9 @@ def predict(bank, arrays, checkpoint):
     intercept = float(np.asarray(params['intercept']).ravel()[0])
     beta = float(np.asarray(params.get('beta', np.array([0.0]))).ravel()[0])
     scores = (z @ coef + intercept).reshape(n, four)
+
+    comparator = comparator_params(params)
+    if comparator is not None:
+        return choose_by_comparator(bank, answers, scores,
+                                    arrays['embeddings'], *comparator)
     return choose_by_model(bank, answers, scores, beta)
