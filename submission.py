@@ -44,17 +44,19 @@ import numpy as np
 # Feature extraction.
 # ---------------------------------------------------------------------------
 # Words that a wrong trace tends to use when it has to back-track.
-_HEDGES = (
-    'wait', 'hmm', 'let me', 'try again', 'mistake', 'actually', 'however',
-    'not an integer', "doesn't make sense", 'misinterpret', 'error',
-    'incorrect', 'rethink', 'alternatively', 'seems wrong', "let's try",
-    'but this', 'problem setup', 'contradiction', 'wrong',
-)
-DIGIT = re.compile(r'\d')
+# Removed. No answers in the dataset seem to have any of this after all.
+
+# _HEDGES = (
+#     'wait', 'hmm', 'let me', 'try again', 'mistake', 'actually', 'however',
+#     'not an integer', "doesn't make sense", 'misinterpret', 'error',
+#     'incorrect', 'rethink', 'alternatively', 'seems wrong', "let's try",
+#     'but this', 'problem setup', 'contradiction', 'wrong',
+# )
+DIGIT = re.compile(r'\d+')
 
 
 def text_features(text):
-    """13 surface / reasoning-style features for one candidate trace."""
+    """12 surface / reasoning-style features for one candidate trace."""
     low = text.lower()
     return np.array([
         np.log1p(len(text)),
@@ -65,7 +67,6 @@ def text_features(text):
         np.log1p(text.count('\n')),
         float(text.rstrip().endswith('.')),
         float('final answer' in low),
-        np.log1p(sum(low.count(m) for m in _HEDGES)),
         float('\\frac' in text),
         float('approx' in low),
         np.log1p(text.count('$')),
@@ -117,7 +118,7 @@ def feature_matrix(bank, embeddings):
     embeddings = np.asarray(embeddings, dtype=np.float64)
     if embeddings.shape[:2] != (n, 4):
         raise ValueError('embeddings must have shape [N, 4, D]')
-    text = np.zeros((n, 4, 13), dtype=np.float32)
+    text = np.zeros((n, 4, 12), dtype=np.float32)
     answers = [[None] * 4 for _ in range(n)]
     for q, row in enumerate(bank):
         for cand in row['candidates']:

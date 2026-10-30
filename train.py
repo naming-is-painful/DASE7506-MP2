@@ -35,7 +35,7 @@ import submission
 from common import load_inputs, read_jsonl, parse_answer
 
 SEED = 0
-FEATURE_WIDTH = 1024 + 13 + 6
+FEATURE_WIDTH = 1024 + 12 + 6
 
 
 def build_labels(bank, gold, arrays):
@@ -62,6 +62,7 @@ def main():
     parser.add_argument('--C', type=float, default=0.01)
     parser.add_argument('--beta', type=float, default=0.05)
     parser.add_argument('--seed', type=int, default=SEED)
+    parser.add_argument('--trainall', type=bool, default=False, help='Train on all questions, not just non-unanimous ones')
     args = parser.parse_args()
 
     bank, arrays = load_inputs('train')
@@ -70,7 +71,10 @@ def main():
         raise ValueError('Incomplete training references')
 
     features, answers, labels = build_labels(bank, gold, arrays)
-    keep = np.array([not unanimous(row) for row in answers], dtype=bool)
+    if args.trainall:
+        keep = np.ones(len(bank), dtype=bool)
+    else:
+        keep = np.array([not unanimous(row) for row in answers], dtype=bool)
     print('training questions: %d total, %d non-unanimous' % (len(bank), int(keep.sum())))
 
     rows = (np.where(keep)[0][:, None] * 4 + np.arange(4)).ravel()
