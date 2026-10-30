@@ -32,7 +32,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 import submission
-from common import load_inputs, read_jsonl
+from common import load_inputs, read_jsonl, parse_answer
 
 SEED = 0
 FEATURE_WIDTH = 1024 + 13 + 6
@@ -45,7 +45,7 @@ def build_labels(bank, gold, arrays):
     for q, (row, reference) in enumerate(zip(bank, gold)):
         if row['id'] != reference['id']:
             raise ValueError('Bank/reference misalignment at question %d' % q)
-        target = submission.parse_final_answer(reference['answer'])
+        target = parse_answer(reference['answer'])
         for i in range(4):
             labels[q, i] = int(answers[q][i] is not None and answers[q][i] == target)
     return features, answers, labels

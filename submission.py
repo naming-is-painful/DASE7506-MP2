@@ -34,33 +34,10 @@ pure answer-agreement voting, which is a legitimate training-free baseline.
 """
 
 import re
-from fractions import Fraction
+from common import parse_answer
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Answer parsing. Deliberately identical in behaviour to common.parse_answer so
-# that the groups created here match the groups the scorer grades. Kept local so
-# that the method also works when imported without the course package.
-# ---------------------------------------------------------------------------
-_NUMBER = re.compile(r'[-+]?\d[\d,]*(?:\.\d+)?(?:/\d+)?')
-_BOXED = re.compile(r'\\boxed\{([^{}]+)\}')
-
-
-def parse_final_answer(text):
-    """Return a canonical answer string, or None when no final answer exists."""
-    text = str(text)
-    tail = text.rsplit('####', 1)[1] if '####' in text else None
-    if tail is None:
-        boxed = _BOXED.findall(text)
-        tail = boxed[-1] if boxed else ''
-    match = _NUMBER.search(tail)
-    if not match:
-        return None
-    try:
-        return str(Fraction(match.group().replace(',', '')))
-    except (ValueError, ZeroDivisionError):
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +123,7 @@ def feature_matrix(bank, embeddings):
         for cand in row['candidates']:
             i = int(cand['index'])
             text[q, i] = text_features(cand['text'])
-            answers[q][i] = parse_final_answer(cand['text'])
+            answers[q][i] = parse_answer(cand['text'])
     parts = [embedding_features(embeddings), text, group_features(embeddings, answers)]
     return np.concatenate(parts, axis=2), answers
 
