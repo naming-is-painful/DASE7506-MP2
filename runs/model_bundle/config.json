@@ -1,0 +1,18 @@
+{
+  "method": "linear verifier (stage 1) + pairwise group comparator (stage 2)",
+  "feature_width": 1042,
+  "group_feature_width": 11,
+  "embedding_dim": 1024,
+  "C": 0.01,
+  "C_comparator": 1.0,
+  "beta_when_no_comparator": 0.05,
+  "seed": 0,
+  "folds": 5,
+  "train_questions": 2513,
+  "train_all": false,
+  "stage1_training_accuracy_in_sample": 0.9396424815983175,
+  "stage1_out_of_sample_accuracy": 0.9101997896950579,
+  "comparator_cv_accuracy": 0.9135646687697161,
+  "comparator_cv_std": 0.008290390470842025,
+  "selection": "rank answer groups by comparator, then best candidate in the group"
+}
