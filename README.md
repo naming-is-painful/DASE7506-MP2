@@ -33,11 +33,9 @@ Implement `predict(bank, arrays, checkpoint)` in `submission.py`, or provide ano
 After you have implemented your method, evaluate validation:
 
 ```bash
-OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MKL_NUM_THREADS=4 \
-python predict.py --method submission.py --checkpoint runs/model_bundle \
-  --split validation --output runs/validation-predictions.json
-python score_predictions.py --split validation \
-  --predictions runs/validation-predictions.json --output runs/validation-score.json
+python train.py
+python predict.py --method submission.py --checkpoint runs/model_bundle --split validation --output runs/validation-predictions.json
+python score_predictions.py --split validation --predictions runs/validation-predictions.json --output runs/validation-score.json
 ```
 
 `runs/model_bundle` is an asset you create; it is not supplied. Omit `--checkpoint` if your method needs no asset. On Windows, set the thread environment variables before running the same Python commands. The runner requires `--method` and never opens reference answers.
@@ -45,29 +43,26 @@ python score_predictions.py --split validation \
 Freeze your method and settings before final testing:
 
 ```bash
-OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MKL_NUM_THREADS=4 \
-python predict.py --method submission.py --checkpoint runs/model_bundle \
-  --split test --output runs/test-predictions.json
-python score_predictions.py --split test \
-  --predictions runs/test-predictions.json --output runs/test-score.json
+python predict.py --method submission.py --checkpoint runs/model_bundle --split test --output runs/test-predictions.json
+python score_predictions.py --split test --predictions runs/test-predictions.json --output runs/test-score.json
 ```
 
 Submit the scorer's **`accuracy`** field, in percent. It checks the selected candidate's final numeric answer using `common.parse_answer`, including equivalent fractions/decimals. It grades final answers, not reasoning validity. A score claimed in a predictions file is ignored; missing/reordered IDs, invalid indices and a mismatched split/protocol are rejected.
 
 ## 3. Data and files
 
-| Files | Purpose |
-|---|---|
-| `submission.py` | Empty prediction interface for your implementation. |
-| `predict.py` | Runs your frozen method; writes predictions without reading references. |
-| `score_predictions.py`, `common.py` | Fixed independent scorer, numeric parser and data loading. |
-| `check_data.py` | Checks hashes, split disjointness and feature/reference alignment. |
-| `data/candidates/gsm8k_{split}.jsonl` | Questions and four candidate traces. |
-| `data/candidates/gsm8k_{split}.npz` | Fixed whole-trace embeddings; no model weights or correctness labels. |
-| `data/gsm8k_{split}.jsonl` | Aligned references: training supervision, validation selection, test scoring only. |
-| `data/manifest.json` | Protocol, counts, provenance and data hashes. |
-| `data/LICENSE.txt`, `data/NOTICE.txt` | Source license and attribution. |
-| `PACKAGE_MANIFEST.json` | Release file hashes, relative to the package root containing code/ and guide/. |
+| Files                                 | Purpose                                                                            |
+| ------------------------------------- | ---------------------------------------------------------------------------------- |
+| `submission.py`                       | Empty prediction interface for your implementation.                                |
+| `predict.py`                          | Runs your frozen method; writes predictions without reading references.            |
+| `score_predictions.py`, `common.py`   | Fixed independent scorer, numeric parser and data loading.                         |
+| `check_data.py`                       | Checks hashes, split disjointness and feature/reference alignment.                 |
+| `data/candidates/gsm8k_{split}.jsonl` | Questions and four candidate traces.                                               |
+| `data/candidates/gsm8k_{split}.npz`   | Fixed whole-trace embeddings; no model weights or correctness labels.              |
+| `data/gsm8k_{split}.jsonl`            | Aligned references: training supervision, validation selection, test scoring only. |
+| `data/manifest.json`                  | Protocol, counts, provenance and data hashes.                                      |
+| `data/LICENSE.txt`, `data/NOTICE.txt` | Source license and attribution.                                                    |
+| `PACKAGE_MANIFEST.json`               | Release file hashes, relative to the package root containing code/ and guide/.     |
 
 Protocol: **`dase7506-mp2-open-hard-verifier-v5`**. Splits contain **4,755 / 798 / 467** train/validation/test questions and do not overlap. Every group has a correct final answer. Training and validation include easier groups; test questions have at least two different valid parsed answers. Candidate order is fixed. Test references are public for self-reporting and peer reproduction; they must not enter training, lookup tables or method selection.
 

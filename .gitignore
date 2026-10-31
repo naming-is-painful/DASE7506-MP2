@@ -1,3 +1,6 @@
 .venv
+pip-*
+temp*
+tmp*
 __pycache__
 runs
